@@ -1,1 +1,166 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import sqlite3
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import datetime
+
+# ---------------- BANCO DE DADOS ---------------- #
+def init_db():
+    conn = sqlite3.connect("fintrack.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS transacoes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tipo TEXT NOT NULL,
+            categoria TEXT NOT NULL,
+            valor REAL NOT NULL,
+            data TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def inserir_transacao(tipo, categoria, valor):
+    conn = sqlite3.connect("fintrack.db")
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO transacoes (tipo, categoria, valor, data) VALUES (?, ?, ?, ?)",
+                   (tipo, categoria, valor, datetime.date.today()))
+    conn.commit()
+    conn.close()
+
+def listar_transacoes():
+    conn = sqlite3.connect("fintrack.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM transacoes ORDER BY data DESC")
+    dados = cursor.fetchall()
+    conn.close()
+    return dados
+
+# ---------------- INTERFACE ---------------- #
+class FinTrackApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("FinTrack - Controle de Despesas")
+        self.root.geometry("800x600")
+
+        # Frame principal
+        self.frame = tk.Frame(self.root)
+        self.frame.pack(pady=10)
+
+        # Tipo
+        tk.Label(self.frame, text="Tipo:").grid(row=0, column=0)
+        self.tipo = ttk.Combobox(self.frame, values=["Receita", "Despesa"])
+        self.tipo.grid(row=0, column=1)
+
+        # Categoria
+        tk.Label(self.frame, text="Categoria:").grid(row=0, column=2)
+        self.categoria = ttk.Combobox(self.frame, values=["Alimentação", "Transporte", "Salário", "Lazer", "Outros"])
+        self.categoria.grid(row=0, column=3)
+
+        # Valor
+        tk.Label(self.frame, text="Valor:").grid(row=0, column=4)
+        self.valor = tk.Entry(self.frame)
+        self.valor.grid(row=0, column=5)
+
+        # Botão adicionar
+        tk.Button(self.frame, text="Adicionar", command=self.adicionar).grid(row=0, column=6, padx=10)
+
+        # Tabela de lançamentos
+        self.tree = ttk.Treeview(self.root, columns=("ID", "Tipo", "Categoria", "Valor", "Data"), show="headings")
+        self.tree.heading("ID", text="ID")
+        self.tree.heading("Tipo", text="Tipo")
+        self.tree.heading("Categoria", text="Categoria")
+        self.tree.heading("Valor", text="Valor")
+        self.tree.heading("Data", text="Data")
+        self.tree.pack(pady=20, fill="both", expand=True)
+
+        # Botões gráficos
+        tk.Button(self.root, text="Gráfico de Categorias", command=self.grafico_categorias).pack(side="left", padx=10)
+        tk.Button(self.root, text="Gráfico de Evolução", command=self.grafico_evolucao).pack(side="left", padx=10)
+
+        self.carregar_transacoes()
+
+    def adicionar(self):
+        try:
+            tipo = self.tipo.get()
+            categoria = self.categoria.get()
+            valor = float(self.valor.get())
+
+            if not tipo or not categoria or valor <= 0:
+                raise ValueError
+
+            inserir_transacao(tipo, categoria, valor)
+            self.carregar_transacoes()
+            messagebox.showinfo("Sucesso", "Transação adicionada com sucesso!")
+
+            self.tipo.set("")
+            self.categoria.set("")
+            self.valor.delete(0, tk.END)
+
+        except:
+            messagebox.showerror("Erro", "Preencha todos os campos corretamente.")
+
+    def carregar_transacoes(self):
+        for i in self.tree.get_children():
+            self.tree.delete(i)
+        for row in listar_transacoes():
+            self.tree.insert("", tk.END, values=row)
+
+    def grafico_categorias(self):
+        transacoes = listar_transacoes()
+        categorias = {}
+        for _, tipo, categoria, valor, _ in transacoes:
+            if tipo == "Despesa":
+                categorias[categoria] = categorias.get(categoria, 0) + valor
+
+        if not categorias:
+            messagebox.showwarning("Aviso", "Nenhuma despesa registrada!")
+            return
+
+        fig, ax = plt.subplots()
+        ax.pie(categorias.values(), labels=categorias.keys(), autopct="%1.1f%%")
+        ax.set_title("Despesas por Categoria")
+
+        win = tk.Toplevel(self.root)
+        win.title("Gráfico de Categorias")
+        canvas = FigureCanvasTkAgg(fig, win)
+        canvas.get_tk_widget().pack()
+        canvas.draw()
+
+    def grafico_evolucao(self):
+        transacoes = listar_transacoes()
+        saldo = 0
+        datas, saldos = [], []
+
+        for _, tipo, _, valor, data in sorted(transacoes, key=lambda x: x[4]):
+            if tipo == "Receita":
+                saldo += valor
+            else:
+                saldo -= valor
+            datas.append(data)
+            saldos.append(saldo)
+
+        if not datas:
+            messagebox.showwarning("Aviso", "Nenhuma transação registrada!")
+            return
+
+        fig, ax = plt.subplots()
+        ax.plot(datas, saldos, marker="o")
+        ax.set_title("Evolução do Saldo")
+        ax.set_xlabel("Data")
+        ax.set_ylabel("Saldo")
+
+        win = tk.Toplevel(self.root)
+        win.title("Gráfico de Evolução")
+        canvas = FigureCanvasTkAgg(fig, win)
+        canvas.get_tk_widget().pack()
+        canvas.draw()
+
+# ---------------- MAIN ---------------- #
+if __name__ == "__main__":
+    init_db()
+    root = tk.Tk()
+    app = FinTrackApp(root)
+    root.mainloop()
 
